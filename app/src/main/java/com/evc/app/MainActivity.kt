@@ -433,6 +433,20 @@ class MainActivity : Activity() {
             refreshSelectionStyles()
             updateSelectionText()
         }
+        findViewById<Button>(R.id.selectInvertButton).setOnClickListener {
+            if (selectedUri == null || videoDurationMs <= 0L || frameViews.isEmpty()) {
+                Toast.makeText(this, "ابتدا یک ویدیو و اسلایدهای استوری‌برد را بارگذاری کنید", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            // Invert only the currently available storyboard cells; deleted/missing cells stay excluded.
+            val availableFrames = frameViews.keys.filter { it !in deletedStoryboardFrames }
+            val previouslySelected = selectedFrames.toSet()
+            selectedFrames.clear()
+            selectedFrames.addAll(availableFrames.filter { it !in previouslySelected })
+            storyboardRangeAnchorIndex = null
+            updateSelectionText()
+            Toast.makeText(this, "انتخاب معکوس شد: ${selectedFrames.size} اسلاید", Toast.LENGTH_SHORT).show()
+        }
         findViewById<Button>(R.id.clearSelectionButton).setOnClickListener {
             selectedFrames.clear()
             refreshSelectionStyles()
