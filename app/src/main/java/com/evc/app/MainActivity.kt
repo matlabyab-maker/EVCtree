@@ -756,7 +756,11 @@ class MainActivity : Activity() {
     }
 
     private fun makeDialogDraggable(dialog: AlertDialog) {
-        val titleHandle = dialog.window?.decorView?.findViewById<TextView>(android.R.id.alertTitle) ?: return
+        // Resolve the platform AlertDialog title ID dynamically because alertTitle
+        // is not exposed as a compile-time public ID by every Android SDK.
+        val titleId = dialog.context.resources.getIdentifier("alertTitle", "id", "android")
+        if (titleId == 0) return
+        val titleHandle = dialog.window?.decorView?.findViewById<TextView>(titleId) ?: return
         var downRawX = 0f
         var downRawY = 0f
         var startX = 0
