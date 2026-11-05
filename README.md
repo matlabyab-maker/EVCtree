@@ -2,7 +2,7 @@
 
 Repository: `EVCtree`  
 Application label: `EVCtree`  
-Current project version: `0.2.178` (`versionCode 378`)
+Current project version: `0.2.183` (`versionCode 383`)
 
 ## Project setup
 

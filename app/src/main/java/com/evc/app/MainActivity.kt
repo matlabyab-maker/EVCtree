@@ -183,6 +183,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        setupSelectionButtonsVerticalDrag()
         ensureSingleUndoRedoButtons()
         enableActionRailDragReordering()
         findViewById<Button>(R.id.outputChangesButton).setOnClickListener { exportCombinedChanges() }
@@ -452,7 +453,6 @@ class MainActivity : Activity() {
             refreshSelectionStyles()
             updateSelectionText()
         }
-        findViewById<Button>(R.id.deleteSelectedButton).setOnClickListener { deleteSelectedStoryboardFrames() }
         findViewById<Button>(R.id.applyColorToSelectedButton).setOnClickListener { applyColorToSelectedFrames() }
         setupManualColorControls()
         timeModeButton.setOnClickListener { showTimeMode() }
@@ -675,6 +675,114 @@ class MainActivity : Activity() {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { dialog.dismiss(); chooseVideosForVector() }
         }
         dialog.show()
+        makeDialogDraggable(dialog)
+    }
+
+    /**
+     * Lets every AlertDialog be repositioned by dragging its title bar.
+     * Dialog content controls remain fully interactive; only the title is a drag handle.
+     */
+    /**
+     * Allows the four storyboard selection controls to be repositioned vertically
+     * anywhere within their toolbar by dragging the button itself.
+     */
+    private fun setupSelectionButtonsVerticalDrag() {
+        val draggableIds = intArrayOf(
+            R.id.selectAllButton,
+            R.id.selectInvertButton,
+            R.id.clearSelectionButton,
+            R.id.globalDeleteButton
+        )
+        val touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop
+        draggableIds.forEach { id ->
+            val button = findViewById<Button>(id)
+            button.setOnTouchListener(object : View.OnTouchListener {
+                private var downRawY = 0f
+                private var dragging = false
+                private var parentView: ViewGroup? = null
+
+                override fun onTouch(v: View, event: android.view.MotionEvent): Boolean {
+                    val parent = v.parent as? ViewGroup ?: return false
+                    when (event.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            downRawY = event.rawY
+                            dragging = false
+                            parentView = parent
+                            v.isPressed = true
+                            return true
+                        }
+                        android.view.MotionEvent.ACTION_MOVE -> {
+                            if (!dragging && kotlin.math.abs(event.rawY - downRawY) > touchSlop) {
+                                dragging = true
+                                v.isPressed = false
+                            }
+                            if (dragging && parent === parentView) {
+                                val location = IntArray(2)
+                                parent.getLocationOnScreen(location)
+                                val localY = event.rawY - location[1]
+                                val currentIndex = parent.indexOfChild(v)
+                                var targetIndex = currentIndex
+                                for (i in 0 until parent.childCount) {
+                                    if (i == currentIndex) continue
+                                    val child = parent.getChildAt(i)
+                                    val center = child.top + child.height / 2f
+                                    if (localY < center) {
+                                        targetIndex = i
+                                        break
+                                    }
+                                    targetIndex = i
+                                }
+                                if (targetIndex != currentIndex && targetIndex in 0 until parent.childCount) {
+                                    parent.removeView(v)
+                                    parent.addView(v, targetIndex)
+                                }
+                            }
+                            return true
+                        }
+                        android.view.MotionEvent.ACTION_UP -> {
+                            v.isPressed = false
+                            if (!dragging) v.performClick()
+                            return true
+                        }
+                        android.view.MotionEvent.ACTION_CANCEL -> {
+                            v.isPressed = false
+                            return true
+                        }
+                    }
+                    return true
+                }
+            })
+        }
+    }
+
+    private fun makeDialogDraggable(dialog: AlertDialog) {
+        val titleHandle = dialog.window?.decorView?.findViewById<TextView>(android.R.id.alertTitle) ?: return
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        titleHandle.setOnTouchListener { _, event ->
+            val window = dialog.window ?: return@setOnTouchListener false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val attributes = window.attributes
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = attributes.x
+                    startY = attributes.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val attributes = window.attributes
+                    attributes.x = startX + (event.rawX - downRawX).toInt()
+                    attributes.y = startY + (event.rawY - downRawY).toInt()
+                    window.attributes = attributes
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                else -> true
+            }
+        }
     }
 
     private fun showAdvancedEditDialog() {
@@ -754,7 +862,28 @@ class MainActivity : Activity() {
         }
         closeButton.setOnClickListener { popup.dismiss() }
         val root = findViewById<View>(R.id.mainRootLayout)
-        popup.showAtLocation(root, Gravity.TOP or Gravity.START, (84 * density).toInt(), (72 * density).toInt())
+        val initialPopupX = (84 * density).toInt()
+        val initialPopupY = (72 * density).toInt()
+        var dragDownX = 0f
+        var dragDownY = 0f
+        heading.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragDownX = event.rawX
+                    dragDownY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = (event.rawX - dragDownX).toInt()
+                    val deltaY = (event.rawY - dragDownY).toInt()
+                    popup.update(initialPopupX + deltaX, initialPopupY + deltaY, -1, -1)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                else -> true
+            }
+        }
+        popup.showAtLocation(root, Gravity.TOP or Gravity.START, initialPopupX, initialPopupY)
     }
 
     private fun chooseVideosToAppend() {
@@ -971,7 +1100,7 @@ class MainActivity : Activity() {
             rowIndices.forEach { index ->
                 val match = matches[index]
                 val cell = makeFrameCell(index, match.bitmap, formatTime(match.timeMs))
-                val params = LinearLayout.LayoutParams(0, dp(64), 1f).apply {
+                val params = LinearLayout.LayoutParams(dp(68), dp(52)).apply {
                     setMargins(dp(1), dp(1), dp(1), dp(1))
                 }
                 row.addView(cell, params)
@@ -1587,14 +1716,16 @@ class MainActivity : Activity() {
             return
         }
         val labels = actions.map { it.first }.toTypedArray()
-        AlertDialog.Builder(this)
+        val deleteDialog = AlertDialog.Builder(this)
             .setTitle("Delete • حذف عمومی")
             .setItems(labels) { dialog, which ->
                 actions[which].second.invoke()
                 dialog.dismiss()
             }
             .setNegativeButton("انصراف", null)
-            .show()
+            .create()
+        deleteDialog.show()
+        makeDialogDraggable(deleteDialog)
     }
 
     private fun deleteSelectedTrackClip() {
@@ -2610,7 +2741,7 @@ class MainActivity : Activity() {
             }
             rowIndices.forEach { index ->
                 val cell = makeFrameCell(index, null, "${index + 1}")
-                val params = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                val params = LinearLayout.LayoutParams(dp(68), dp(52)).apply {
                     setMargins(dp(1), dp(1), dp(1), dp(1))
                 }
                 row.addView(cell, params)
@@ -2622,7 +2753,10 @@ class MainActivity : Activity() {
     }
 
     private fun makeFrameCell(index: Int, bitmap: Bitmap?, label: String): FrameLayout {
-        val cell = FrameLayout(this)
+        val cell = FrameLayout(this).apply {
+            clipChildren = true
+            clipToPadding = true
+        }
         cell.background = GradientDrawable().apply {
             setColor(Color.rgb(18, 35, 65)); cornerRadius = dp(2).toFloat()
         }
@@ -3124,17 +3258,21 @@ class MainActivity : Activity() {
         }
         choices += "راهنمای خروجی اصلی"
         actions += {
-            AlertDialog.Builder(this)
+            val helpDialog = AlertDialog.Builder(this)
                 .setTitle("Original Utpot • خروجی بدون تغییر کدک")
                 .setMessage("این بخش خروجی‌هایی را متمرکز می‌کند که ویدیوی اصلی را با Stream Copy حفظ می‌کنند. خروجی‌های دارای برش زمانی دلخواه، فیلتر تصویری، رنگ، متن یا ترکیب تصویر ممکن است به رمزگذاری مجدد نیاز داشته باشند. حفظ ترک‌های خاص به قالب خروجی و سازگاری کدک آن‌ها بستگی دارد.")
                 .setPositiveButton("باشه", null)
-                .show()
+                .create()
+            helpDialog.show()
+            makeDialogDraggable(helpDialog)
         }
-        AlertDialog.Builder(this)
+        val outputDialog = AlertDialog.Builder(this)
             .setTitle("Original Utpot • خروجی‌های بدون تغییر کدک")
             .setItems(choices.toTypedArray()) { _, which -> actions[which].invoke() }
             .setNegativeButton("لغو", null)
-            .show()
+            .create()
+        outputDialog.show()
+        makeDialogDraggable(outputDialog)
     }
 
     /** Offers stream-copy selection for disjoint ranges or one contiguous range. */
@@ -3202,6 +3340,7 @@ class MainActivity : Activity() {
             }
         }
         dialog.show()
+        makeDialogDraggable(dialog)
     }
 
     /** Exports chosen ranges with -map 0 and -c copy to preserve compatible source streams. */
@@ -3344,6 +3483,7 @@ class MainActivity : Activity() {
             }
         }
         dialog.show()
+        makeDialogDraggable(dialog)
     }
 
     /** Splits the input into equal-duration files while stream-copying every input stream. */
